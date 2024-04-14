@@ -69,7 +69,12 @@ team_t team = {
 /* Given block ptr bp, compute address of next and previous blocks */
 #define NEXT_BLKP(bp)  ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))  /*bp가 참조하는 블록의 다음 블록 리턴*/
 #define PREV_BLKP(bp)  ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))  /*bp가 참조하는 블록의 이전 블록 리턴*/
-char *heap_listp;
+static char *heap_listp = 0;
+static char *start_find_bp = 0;
+
+//#define FIRST_FIT
+//#define NEXT_FIT
+#define BEST_FIT
 /*
  * mm_init - initialize the malloc package.
  */
@@ -79,6 +84,7 @@ void *coalesce(void *bp){
   size_t size = GET_SIZE(HDRP(bp));
 
   if (prev_alloc && next_alloc) { /* Case 1*/
+    start_find_bp = bp;
     return bp;
   } else if (prev_alloc && !next_alloc) {
     size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
@@ -95,6 +101,7 @@ void *coalesce(void *bp){
     PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
     bp = PREV_BLKP(bp);
   }
+  start_find_bp = bp;
   return bp;
 }
 
@@ -128,7 +135,7 @@ int mm_init(void)
   PUT(heap_listp + (2*WSIZE), PACK(DSIZE, 1));
   PUT(heap_listp + (3*WSIZE), PACK(0, 1));
   heap_listp += (2 * WSIZE);
-
+  start_find_bp = heap_listp;
   /*Extend the empty heap with a free block of CHUNKSIZE bytes*/
   if (extend_heap(CHUNKSIZE / WSIZE) == NULL) {
     return -1;
@@ -139,12 +146,46 @@ int mm_init(void)
 void *find_fit(size_t asize){/*First-fit search*/
   void *bp;
 
-  for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
+#ifdef FIRST_FIT
+    for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
+      if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {
+        return bp;
+      }
+    }
+    return NULL; /*NO fit*/
+#endif
+
+#ifdef NEXT_FIT
+  for (bp = start_find_bp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
     if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {
       return bp;
     }
   }
-  return NULL; /*NO fit*/
+  for (bp = heap_listp; bp != start_find_bp; bp = NEXT_BLKP(bp)) {
+    if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {
+      return bp;
+    }
+  }
+    return NULL; /*NO fit*/
+#endif
+
+#ifdef BEST_FIT
+  void *min_bp;
+  int min_size = CHUNKSIZE;
+  int is_find = 0;
+  for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
+
+    if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp))) && (min_size < GET_SIZE(HDRP(bp)))) {
+      min_bp = bp;
+      is_find = 1;
+    }
+  }
+  if (is_find) {
+    return min_bp;
+  } else {
+    return NULL; /*NO fit*/
+  }
+#endif
 }
 
 void place(void *bp, size_t asize){
@@ -156,9 +197,11 @@ void place(void *bp, size_t asize){
     bp = NEXT_BLKP(bp);
     PUT(HDRP(bp), PACK(csize - asize, 0));
     PUT(FTRP(bp), PACK(csize - asize, 0));
+    start_find_bp = bp;
   } else {
     PUT(HDRP(bp), PACK(csize, 1));
     PUT(FTRP(bp), PACK(csize, 1));
+    start_find_bp = bp;
   }
 }
 /* 
